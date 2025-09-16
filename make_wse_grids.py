@@ -174,8 +174,8 @@ def copy_cross_sections(workspace, water_name, xs_fc, coord_sys):
 
         # Fields to add
         add_fields = ["WSE_50pct", "WSE_20pct", "WSE_10pct", "WSE_04pct",
-                      "WSE_02pct", "WSE_01plus", "WSE_01min", "WSE_01pct",
-                      "WSE_0_2pct", "WSE_0_5pct"]
+                      "WSE_02pct", "WSE_01plus", "WSE_01min", "WSE_01fut",
+                      "WSE_01pct", "WSE_0_2pct", "WSE_0_5pct"]
 
         for field in add_fields:
             arcpy.AddField_management(xs_layer, field, "DOUBLE")
@@ -209,7 +209,7 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
         # Fields to process
         fields = ["XS_LN_ID", "WSE_50pct", "WSE_20pct", "WSE_10pct",
                   "WSE_04pct", "WSE_02pct", "WSE_01plus", "WSE_01min",
-                  "WSE_01pct", "WSE_0_2pct", "WSE_0_5pct"]
+                  "WSE_01fut", "WSE_01pct", "WSE_0_2pct", "WSE_0_5pct"]
 
         # Calculate the WSE values for each event
         with arcpy.da.UpdateCursor(xs_layer, fields) as update_cursor:
@@ -242,12 +242,14 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
                             update_row[6] = wsel
                         if event_type in ("01minus", "1 Percent Minus Chance"):
                             update_row[7] = wsel
+                        if event_type in ("01pctfut", "1 Percent Chance Future Conditions"):
+                            update_row[8] = wsel                            
                         if event_type in ("01pct", "1 Percent Chance"):
-                            update_row[8] = wsel
-                        if event_type in ("0_2pct", "0.2 Percent Chance"):
                             update_row[9] = wsel
-                        if event_type in ("0_5pct", "0.5 Percent Chance"):
+                        if event_type in ("0_2pct", "0.2 Percent Chance"):
                             update_row[10] = wsel
+                        if event_type in ("0_5pct", "0.5 Percent Chance"):
+                            update_row[11] = wsel
 
                         # Delete any 2D evaluation lines
                         if search_row[2] == "T":
@@ -412,7 +414,7 @@ def clip_raster(workspace, water_name, event):
     # Determine which flooding clipper to use.
     flooding = workspace + "\\" + "\\flooding_1pct.shp"
 
-    if event in ("WSE_01plus", "WSE_01min", "WSE_0_2pct", "WSE_0_5pct"):
+    if event in ("WSE_01plus", "WSE_01min", "WSE_01fut", "WSE_0_2pct", "WSE_0_5pct"):
         flooding = workspace + "\\" + "\\flooding_0_2pct.shp"
 
     # Create a feature layer of the flooding
@@ -526,6 +528,8 @@ def main(xs_fc, flooding, process_list, elev_table, events, dem,
 
     # Set the snap raster for the raster processing
     arcpy.env.snapRaster = dem
+
+    arcpy.env.cellSize = int(cell_size)
 
     # coord_sys is received as string.  Convert it to spatial reference
     spatial_ref = arcpy.SpatialReference()
