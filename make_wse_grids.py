@@ -1,18 +1,24 @@
-"""Make WSE grids for Flood Risk Products"""
+"""Make WSE grids for Flood Risk Products
+   Author: Jesse Morgan
+   Contact: jmorgan1371@runbox.com
+   Date: 11/4/2025
+   License: None
+"""
 import os
 import arcpy
-from arcpy.sa import *
+from arcpy.sa import ExtractByMask, SetNull
+from arcpy.da import SearchCursor, UpdateCursor, Walk
 
 def create_polygon(in_xs_path, station_1, station_2, out_fc):
     """
-    Create an in memory polygon of that covers two cross sections.
+    Create an in memory polygon that covers two cross sections.
     The polygon will be merged into a larger polygon to create
     the clipper.
 
     Keyword arguments:
     in_xs_path -- the full path to the cross section feature class
     station_1 -- the lower station of a single cross section
-    station_2 -- the next station of a single cross section
+    station_2 -- the next higher station of a single cross section
     out_fc -- the feature class to append the in memory polgon to
     """
     try:
@@ -34,6 +40,9 @@ def create_polygon(in_xs_path, station_1, station_2, out_fc):
         arcpy.management.Append(inputs=boundary,
                                 target=out_fc,
                                 schema_type="NO_TEST")
+
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
 
     finally:
         # Delete the temporary objects
@@ -60,37 +69,41 @@ def create_stream_clippers(workspace, water_name, coord_sys):
         arcpy.AddMessage("\t\tClipper.shp already exists.")
         return
 
-    # Create a temporary shapefile to hold each boundary
-    clipper_temp = arcpy.CreateFeatureclass_management(
-        out_path=workspace,
-        out_name="clipper_temp.shp",
-        geometry_type="POLYGON",
-        spatial_reference=coord_sys)
+    try:
+        # Create a temporary shapefile to hold each boundary
+        clipper_temp = arcpy.CreateFeatureclass_management(
+            out_path=workspace,
+            out_name="clipper_temp.shp",
+            geometry_type="POLYGON",
+            spatial_reference=coord_sys)
 
-    # Create a sorted list of the stream stations for the folder's s_xs.shp
-    station_list = []
-    with arcpy.da.SearchCursor(in_table=xs_layer,
-                               field_names="STREAM_STN") as cursor:
-        for row in cursor:
-            if row[0] not in station_list:
-                station_list.append(row[0])
+        # Create a sorted list of the stream stations for the folder's s_xs.shp
+        station_list = []
+        with SearchCursor(in_table=xs_layer,
+                          field_names="STREAM_STN") as cursor:
+            for row in cursor:
+                if row[0] not in station_list:
+                    station_list.append(row[0])
 
-    station_list = sorted(station_list)
+        station_list = sorted(station_list)
 
-    # Iterate through the stream station list sending every two
-    # stations to the create_polygon function
-    for station in range(0, len(station_list) - 1):
-        create_polygon(in_xs_path=xs_layer,
-                       station_1=station_list[station],
-                       station_2=station_list[station + 1],
-                       out_fc=clipper_temp)
+        # Iterate through the stream station list sending every two
+        # stations to the create_polygon function
+        for station in range(0, len(station_list) - 1):
+            create_polygon(in_xs_path=xs_layer,
+                           station_1=station_list[station],
+                           station_2=station_list[station + 1],
+                           out_fc=clipper_temp)
 
-    # Dissolve the features and remove the temporary shapefile
-    arcpy.management.Dissolve(in_features=clipper_temp,
-                              out_feature_class=clipper)
+        # Dissolve the features and remove the temporary shapefile
+        arcpy.management.Dissolve(in_features=clipper_temp,
+                                  out_feature_class=clipper)
 
-    # Delete the temporary objects
-    arcpy.management.Delete(in_data=clipper_temp)
+        # Delete the temporary objects
+        arcpy.management.Delete(in_data=clipper_temp)
+
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
 
 
 def make_tin(workspace, water_name, event, coord_sys):
@@ -131,6 +144,9 @@ def make_tin(workspace, water_name, event, coord_sys):
                                 constrained_delaunay="DELAUNAY")
         else:
             arcpy.AddMessage(f"\t\tThere are no WSE values for {event}.")
+
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
 
     finally:
         arcpy.management.Delete(in_data="xs_lyr")
@@ -181,6 +197,9 @@ def copy_cross_sections(workspace, water_name, xs_fc, coord_sys):
             arcpy.AddField_management(xs_layer, field, "DOUBLE")
             arcpy.CalculateField_management(xs_layer, field, "-8888")
 
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
+
     finally:
         # Delete the view
         arcpy.management.Delete(in_data="xs_select")
@@ -212,7 +231,7 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
                   "WSE_01fut", "WSE_01pct", "WSE_0_2pct", "WSE_0_5pct"]
 
         # Calculate the WSE values for each event
-        with arcpy.da.UpdateCursor(xs_layer, fields) as update_cursor:
+        with UpdateCursor(xs_layer, fields) as update_cursor:
             for update_row in update_cursor:
                 xs_ln_id = update_row[0]
 
@@ -220,7 +239,7 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
                                                        field="XS_LN_ID")
                 query = f"{query_field} = '{xs_ln_id}'"
 
-                with arcpy.da.SearchCursor(
+                with SearchCursor(
                     in_table=elev_layer,
                     field_names=["EVENT_TYP", "WSEL", "EVAL_LN"],
                     where_clause=query,
@@ -243,7 +262,7 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
                         if event_type in ("01minus", "1 Percent Minus Chance"):
                             update_row[7] = wsel
                         if event_type in ("01pctfut", "1 Percent Chance Future Conditions"):
-                            update_row[8] = wsel                            
+                            update_row[8] = wsel
                         if event_type in ("01pct", "1 Percent Chance"):
                             update_row[9] = wsel
                         if event_type in ("0_2pct", "0.2 Percent Chance"):
@@ -256,6 +275,10 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
                             update_cursor.deleteRow()
                         else:
                             update_cursor.updateRow(update_row)
+
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
+
     finally:
         arcpy.management.Delete(in_data="xs_layer")
         arcpy.management.Delete(in_data="elev_layer")
@@ -269,14 +292,19 @@ def make_folder(workspace, folder_name):
     folder_name -- the water name that will become the folder name
     l_xs_table -- the xs elevation table
     """
-    new_folder_name = arcpy.ValidateTableName(folder_name).lower()
+    try:
+        new_folder_name = arcpy.ValidateTableName(folder_name).lower()
 
-    if not arcpy.Exists(dataset=workspace + "\\" + new_folder_name):
-        arcpy.management.CreateFolder(out_folder_path=workspace,
-                                      out_name=new_folder_name)
 
-    else:
-        arcpy.AddMessage("\t\tFolder already exists.")
+        if not arcpy.Exists(dataset=workspace + "\\" + new_folder_name):
+            arcpy.management.CreateFolder(out_folder_path=workspace,
+                                          out_name=new_folder_name)
+
+        else:
+            arcpy.AddMessage("\t\tFolder already exists.")
+
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
 
 
 def create_flooding_clippers(workspace, flooding, buffer_size,
@@ -333,6 +361,9 @@ def create_flooding_clippers(workspace, flooding, buffer_size,
                               buffer_distance_or_field=buffer_distance,
                               dissolve_option="ALL")
 
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
+
     finally:
         # Delete the temporary, projected layer
         arcpy.management.Delete(in_data=projected_flooding)
@@ -377,6 +408,9 @@ def create_full_with_raster(workspace, water_name, event, cell_size):
                                     extraction_area="INSIDE")
         out_extract.save(out_wsel)
 
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
+
     finally:
         # Delete temporary raster and TIN
         if arcpy.Exists(dataset=temp_wsel):
@@ -411,25 +445,29 @@ def clip_raster(workspace, water_name, event):
         arcpy.AddMessage(f"\t\tThere are no WSE values for {event}.")
         return
 
-    # Determine which flooding clipper to use.
-    flooding = workspace + "\\" + "\\flooding_1pct.shp"
+    try:
+        # Determine which flooding clipper to use.
+        flooding = workspace + "\\" + "\\flooding_1pct.shp"
 
-    if event in ("WSE_01plus", "WSE_01min", "WSE_01fut", "WSE_0_2pct", "WSE_0_5pct"):
-        flooding = workspace + "\\" + "\\flooding_0_2pct.shp"
+        if event in ("WSE_01plus", "WSE_01min", "WSE_01fut", "WSE_0_2pct", "WSE_0_5pct"):
+            flooding = workspace + "\\" + "\\flooding_0_2pct.shp"
 
-    # Create a feature layer of the flooding
-    flooding_layer = arcpy.management.MakeFeatureLayer(
-        in_features=flooding, out_layer="flooding_layer")
+        # Create a feature layer of the flooding
+        flooding_layer = arcpy.management.MakeFeatureLayer(
+            in_features=flooding, out_layer="flooding_layer")
 
-    # Extract the raster by the flooding mask
-    out_extract_mask = arcpy.sa.ExtractByMask(in_raster=full_raster,
-                                              in_mask_data=flooding_layer,
-                                              extraction_area="INSIDE")
-    out_extract_mask.save(clipped_raster)
+        # Extract the raster by the flooding mask
+        out_extract_mask = arcpy.sa.ExtractByMask(in_raster=full_raster,
+                                                  in_mask_data=flooding_layer,
+                                                  extraction_area="INSIDE")
+        out_extract_mask.save(clipped_raster)
 
-    # Delete the full raster
-    arcpy.management.Delete(in_data=full_raster)
-    arcpy.management.Delete(in_data="flooding_layer")
+        # Delete the full raster
+        arcpy.management.Delete(in_data=full_raster)
+        arcpy.management.Delete(in_data="flooding_layer")
+
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
 
 
 def extract_raster_from_dem(workspace, water_name, event, dem):
@@ -450,22 +488,26 @@ def extract_raster_from_dem(workspace, water_name, event, dem):
         arcpy.AddMessage(f"\t\tThere are no WSE values for {event}.")
         return
 
-    # Rename the clipped raster to temp raster for processing
-    arcpy.management.Rename(in_data=full_raster, out_data=temp_raster)
+    try:
+        # Rename the clipped raster to temp raster for processing
+        arcpy.management.Rename(in_data=full_raster, out_data=temp_raster)
 
-    # Create the needed raster layers
-    temp_raster_layer = arcpy.Raster(temp_raster)
-    dem_layer = arcpy.Raster(dem)
+        # Create the needed raster layers
+        temp_raster_layer = arcpy.Raster(temp_raster)
+        dem_layer = arcpy.Raster(dem)
 
-    # Set NULL all values less than the DEM
-    out_set_null = arcpy.sa.SetNull(
-        in_conditional_raster=(temp_raster_layer < dem_layer),
-        in_false_raster_or_constant=temp_raster_layer)
+        # Set NULL all values less than the DEM
+        out_set_null = SetNull(
+            in_conditional_raster=(temp_raster_layer < dem_layer),
+            in_false_raster_or_constant=temp_raster_layer)
 
-    out_set_null.save(full_raster)
+        out_set_null.save(full_raster)
 
-    # Delete the temp raster
-    arcpy.management.Delete(in_data=temp_raster)
+        # Delete the temp raster
+        arcpy.management.Delete(in_data=temp_raster)
+
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
 
 
 def mosaic_wse_grid(workspace, event):
@@ -481,32 +523,36 @@ def mosaic_wse_grid(workspace, event):
     # Final output raster
     target_raster = workspace + '\\' + event + '.tif'
 
-    # Delete the target raster if it already exists.
-    if arcpy.Exists(dataset=target_raster):
-        arcpy.management.Delete(in_data=target_raster)
+    try:
+        # Delete the target raster if it already exists.
+        if arcpy.Exists(dataset=target_raster):
+            arcpy.management.Delete(in_data=target_raster)
 
-    # Get a list of rasters by event type.
-    walk = arcpy.da.Walk(workspace=workspace,
-                         datatype='RasterDataset',
-                         type='TIF')
+        # Get a list of rasters by event type.
+        walk = Walk(workspace=workspace,
+                    datatype='RasterDataset',
+                    type='TIF')
 
-    for dirpath, _, filenames in walk:
-        for filename in filenames:
-            if event in filename:
-                raster_list.append(dirpath + '\\' + filename)
+        for dirpath, _, filenames in walk:
+            for filename in filenames:
+                if event in filename:
+                    raster_list.append(dirpath + '\\' + filename)
 
-    # Return if the list is empty
-    if not raster_list:
-        arcpy.AddMessage(f"\tThere are no WSE values for {event}.")
-        return
+        # Return if the list is empty
+        if not raster_list:
+            arcpy.AddMessage(f"\tThere are no WSE values for {event}.")
+            return
 
-    # Copy the first raster as the target raster.
-    arcpy.management.Copy(in_data=raster_list[0], out_data=target_raster)
+        # Copy the first raster as the target raster.
+        arcpy.management.Copy(in_data=raster_list[0], out_data=target_raster)
 
-    # Mosaic the rasters together.
-    arcpy.management.Mosaic(inputs=raster_list,
-                            target=target_raster,
-                            mosaic_type='MAXIMUM')
+        # Mosaic the rasters together.
+        arcpy.management.Mosaic(inputs=raster_list,
+                                target=target_raster,
+                                mosaic_type='MAXIMUM')
+
+    except arcpy.ExecuteError:
+        print(arcpy.GetMessages(2))
 
 
 def main(xs_fc, flooding, process_list, elev_table, events, dem,
@@ -593,8 +639,8 @@ def main(xs_fc, flooding, process_list, elev_table, events, dem,
     if mosaic:
         arcpy.AddMessage("\n")
         for event in events:
-           arcpy.AddMessage(f"Mosaic rasters for the {event} event.")
-           mosaic_wse_grid(workspace=out_folder, event=event)
+            arcpy.AddMessage(f"Mosaic rasters for the {event} event.")
+            mosaic_wse_grid(workspace=out_folder, event=event)
 
 
 if __name__ == "__main__":
@@ -610,12 +656,21 @@ if __name__ == "__main__":
     OUTPUT_FOLDER = arcpy.GetParameterAsText(7)
     COORD_SYS = arcpy.GetParameterAsText(8)
     MAKE_MOSAIC = arcpy.GetParameterAsText(9)
+
     if MAKE_MOSAIC.lower() == 'true':
         MAKE_MOSAIC = True
     else:
         MAKE_MOSAIC = False
 
-    main(xs_fc=XS_FEATURE_CLASS, flooding=FLOODING_FEATURE_CLASS,
-         process_list=PROCESS_NAMES, elev_table=L_XS_ELEV_TABLE,
-         events=EVENTS_LIST, dem=DEM_RASTER, cell_size=OUT_CELL_SIZE,
-         coord_sys=COORD_SYS, out_folder=OUTPUT_FOLDER, mosaic=MAKE_MOSAIC)
+    main(
+        xs_fc=XS_FEATURE_CLASS,
+        flooding=FLOODING_FEATURE_CLASS,
+        process_list=PROCESS_NAMES,
+        elev_table=L_XS_ELEV_TABLE,
+        events=EVENTS_LIST,
+        dem=DEM_RASTER,
+        cell_size=OUT_CELL_SIZE,
+        coord_sys=COORD_SYS,
+        out_folder=OUTPUT_FOLDER,
+        mosaic=MAKE_MOSAIC
+    )
