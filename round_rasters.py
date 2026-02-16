@@ -24,18 +24,18 @@ def determine_precision(in_prec):
         precision = int(in_prec)
 
     except ValueError:
-        print("ERROR: Precision must be number between 0 and 5.")
+        arcpy.AddError("ERROR: Precision must be number between 0 and 5.")
         sys.exit(1)
 
     rounding_value = 0
     multiplier = 0
 
     if precision < 0:
-        print("ERROR: Precision value must not be negative.")
+        arcpy.AddError("ERROR: Precision value must not be negative.")
         sys.exit(1)
 
     if precision > 5:
-        print("ERROR: Precision value must not be greater than 5.")
+        arcpy.AddError("ERROR: Precision value must not be greater than 5.")
         sys.exit(1)
 
     if precision > 0:
@@ -55,6 +55,8 @@ def main(rasters, out_workspace, precision):
     """
     try:
         for raster in rasters:
+            arcpy.AddMessage(f"Rounding {raster}")
+            
             # Get raster information
             orig_raster = Raster(raster)
             desc = arcpy.Describe(orig_raster)
@@ -69,28 +71,34 @@ def main(rasters, out_workspace, precision):
             out_desc = arcpy.Describe(out_workspace)
 
 
-            if out_desc.dataElementType == "DEWorkspace":  # Output is a file geodatabase
-                out_raster_name = in_raster_name.replace(extension, "")  # Remove extension
+            if out_desc.name.endswith(".gdb"):  # Output is a file geodatabase
+                out_raster_name = in_raster_name.replace("." + extension, "")  # Remove extension
                 new_raster = os.path.join(out_workspace, out_raster_name)
             else:
                 out_raster_name = "temp_" + desc.name  # Temp raster to copy later
 
                 if not extension:  # The input raster was in a file geodatabase
-                    extension = ".tif"
+                    out_raster_name = out_raster_name + ".tif"
+                    in_raster_name = in_raster_name + ".tif"
 
-                new_raster = os.path.join(out_workspace, out_raster_name + extension)
-                final_raster = os.path.join(out_workspace, in_raster_name + extension)
+            new_raster = os.path.join(out_workspace, out_raster_name)
+            final_raster = os.path.join(out_workspace, in_raster_name)
 
             # Check if the output raster already exists.
-            if arcpy.Exists(new_raster) or arcpy.Exists(final_raster):
-                print(f"ERROR: {new_raster} already exists. Exiting...")
+            if arcpy.Exists(new_raster):
+                arcpy.AddError(f"ERROR: {new_raster} already exists. Exiting...")
                 sys.exit(1)
+
+            if final_raster:
+                if arcpy.Exists(final_raster):
+                    arcpy.AddError(f"ERROR: {new_raster} already exists. Exiting...")
+                    sys.exit(1)                
 
             # Get the values for the rounding formula
             rounding_value, multiplier = determine_precision(precision)
 
             # Round the raster
-            rounded_raster = (Float(Int((orig_raster + rounding_value) * multiplier))) / multiplier
+            rounded_raster = (Float(Int((orig_raster + rounding_value) * multiplier))) / multiplier          
             rounded_raster.save(new_raster)
 
             # If the output workspace is a folder, copy the raster to invoke the LZW compression
@@ -99,6 +107,8 @@ def main(rasters, out_workspace, precision):
                     in_raster=new_raster,
                     out_rasterdataset=final_raster)
                 arcpy.management.Delete(new_raster)
+
+        arcpy.AddMessage("Done")
 
     except arcpy.ExecuteError:
         arcpy.AddError(arcpy.GetMessages(2))
