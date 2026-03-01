@@ -290,7 +290,6 @@ def make_folder(workspace, folder_name):
     Keyword arguments:
     workspace -- the workspace that contains the folders of stream names
     folder_name -- the water name that will become the folder name
-    l_xs_table -- the xs elevation table
     """
     try:
         new_folder_name = arcpy.ValidateTableName(folder_name).lower()
@@ -554,6 +553,51 @@ def mosaic_wse_grid(workspace, event):
     except arcpy.ExecuteError:
         print(arcpy.GetMessages(2))
 
+def create_static_grids(workspace, flooding, coord_sys, cell_size):
+    """Creates the Static Zone rasters.
+
+    Keyword arguments:
+    workspace -- the workspace that contains the folders of stream names
+    flooding -- the flooding feature class
+    coord_sys -- the coordinate system to use for the clipper
+    cell_size -- the cell size of the output rasters
+    """
+
+    # Folder to hold static bfe areas
+    out_folder_name = "Static_BFE_Zones"
+    static_polygon_fc = os.path.join(workspace, out_folder_name, "static_flooding.shp")
+    static_wse_raster = os.path.join(workspace, out_folder_name, "static_flooding.tif")
+    make_folder(workspace=workspace, folder_name=out_folder_name)
+
+    # Check if the static polygons already exists.
+    if not arcpy.Exists(static_wse_raster):
+        print("Static zone rasters already exist.  Skipping...")
+        return        
+
+    # Select all the Static BFE Zones
+    sql_exp = """{0} <> -9999""".format(arcpy.AddFieldDelimiters(flooding, "STATIC_BFE"))
+    static_polygons = arcpy.management.SelectByAttribute(
+        in_layer=flooding,
+        selection_type="NEW_SELECTION",
+        where_clause=sql_exp)
+
+    if int(arcpy.management.GetCount(in_rows=static_polygons)[0]) > 0:
+        if not arcpy.Exists(dataset=static_polygon_fc):
+            arcpy.management.Project(
+                in_dataset=static_polygons,
+                out_dataset=static_polygon_fc,
+                out_coor_system=coord_sys)
+    else:
+        return
+
+    # Create the WSE Grid
+    arcpy.PolygonToRaster_conversion(
+        in_features=static_polygon_fc,
+        value_field="STATIC_BFE",
+        out_rasterdataset=static_wse_raster,
+        cellsize=cell_size)
+      
+
 
 def main(xs_fc, flooding, process_list, elev_table, events, dem,
          coord_sys, cell_size, out_folder, mosaic):
@@ -636,6 +680,11 @@ def main(xs_fc, flooding, process_list, elev_table, events, dem,
                 extract_raster_from_dem(workspace=out_folder,
                                         water_name=water_name,
                                         event=event, dem=dem)
+
+    # Make any static bfe raster
+    arcpy.AddMessage("Creating Static BFE WSE grids.")
+    create_static_grids(workspace=out_folder, flooding=flooding, coord_sys=spatial_ref, cell_size=cell_size)
+    
     if mosaic:
         arcpy.AddMessage("\n")
         for event in events:
