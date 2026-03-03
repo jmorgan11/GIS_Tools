@@ -1,6 +1,6 @@
 """Make WSE grids for Flood Risk Products
    Author: Jesse Morgan
-   Contact: jmorgan1371@runbox.com
+   Contact: 
    Date: 11/4/2025
    License: None
 """
@@ -37,7 +37,7 @@ def create_polygon(in_xs_path, station_1, station_2, out_fc):
             group_option="ALL")
 
 
-        # Append the polgyon to the clipper feature class
+        # Append the polygon to the clipper feature class
         arcpy.management.Append(inputs=boundary,
                                 target=out_fc,
                                 schema_type="NO_TEST")
@@ -51,20 +51,19 @@ def create_polygon(in_xs_path, station_1, station_2, out_fc):
         arcpy.management.Delete(in_data="xs_sel")
 
 
-def create_stream_clippers(workspace, water_name, coord_sys):
+def create_stream_clippers(workspace, water_name, coord_sys, folder_name):
     """
     Create a bounding polygon for each stream.
 
     Keyword arguments:
     workspace -- the workspace that contains the folders of stream names
-    water_name -- the current stream.  Will be converted to a folder name
+    water_name -- the current stream
     coord_sys -- the coordinate system to use for the clipper
     """
 
     # Final shapefile to be created
-    table_name = arcpy.ValidateTableName(water_name).lower()
-    clipper = os.path.join(workspace, table_name, "clipper.shp")
-    xs_layer = os.path.join(workspace, table_name, "xs_elev.shp")
+    clipper = os.path.join(workspace, folder_name, "clipper.shp")
+    xs_layer = os.path.join(workspace, folder_name, "xs_elev.shp")
 
     if arcpy.Exists(dataset=clipper):
         arcpy.AddMessage("\t\tClipper.shp already exists.")
@@ -107,7 +106,7 @@ def create_stream_clippers(workspace, water_name, coord_sys):
         print(arcpy.GetMessages(2))
 
 
-def make_tin(workspace, water_name, event, coord_sys):
+def make_tin(workspace, water_name, event, coord_sys, folder_name):
     """Create a TIN for a stream based on a event.
 
     Keyword arguments:
@@ -115,12 +114,12 @@ def make_tin(workspace, water_name, event, coord_sys):
     water_name -- the current stream.  Will be converted to a folder name
     event -- the flooding event to create the TIN for
     coord_sys -- the coordinate system to use for the clipper
+    folder_name -- the name of the folder where the TIN will be created
     """
 
     try:
-        table_name = arcpy.ValidateTableName(water_name).lower()
-        xs_fc = os.path.join(workspace, table_name, "xs_elev.shp")
-        out_tin = os.path.join(workspace, table_name, event.lower() + ".tin")
+        xs_fc = os.path.join(workspace, folder_name, "xs_elev.shp")
+        out_tin = os.path.join(workspace, folder_name, event.lower() + ".tin")
 
         # Make a feature layer for the current streams cross-sections
         if arcpy.Exists(dataset="xs_lyr"):
@@ -154,28 +153,30 @@ def make_tin(workspace, water_name, event, coord_sys):
         arcpy.management.Delete(in_data="clipper_lyr")
 
 
-def copy_cross_sections(workspace, water_name, xs_fc, coord_sys):
+def copy_cross_sections(workspace, water_name, start_id, xs_fc, coord_sys, folder_name):
     """Copy the cross-sections for the stream to the stream's folder
 
     Keyword arguments:
     workspace -- the workspace that contains the folders of stream names
-    water_name -- the current stream.  Will be converted to a folder name
-    xs_fc -- the cross section feature class
+    water_name -- the current stream.
+    start_id -- the START_ID value for the cross-sections to copy
+    xs_fc -- the cross-section feature class
     coord_sys -- the coordinate system to use the new feature class
+    folder_name -- the name of the folder to store the cross-sections
     """
 
     try:
         # Final shapefile to be created.
-        table_name = arcpy.ValidateTableName(water_name).lower()
-        xs_elev_fc = os.path.join(workspace, table_name, "xs_elev.shp")
+        xs_elev_fc = os.path.join(workspace, folder_name, "xs_elev.shp")
 
         if arcpy.Exists(dataset=xs_elev_fc):
             arcpy.AddMessage("\t\tThe xs_elev.shp already exists.")
             return
 
         # Select the cross-sections for the current stream
-        query_field = arcpy.AddFieldDelimiters(datasource=xs_fc, field="WTR_NM")
-        query = f"{query_field} = '{water_name}'"
+        wtr_nm_field = arcpy.AddFieldDelimiters(datasource=xs_fc, field="WTR_NM")
+        start_id_field = arcpy.AddFieldDelimiters(datasource=xs_fc, field="START_ID")
+        query = f"{wtr_nm_field} = '{water_name}' AND {start_id_field} = '{start_id}'"
         xs_select = arcpy.management.MakeFeatureLayer(in_features=xs_fc,
                                                       out_layer="xs_select",
                                                       where_clause=query)
@@ -207,11 +208,10 @@ def copy_cross_sections(workspace, water_name, xs_fc, coord_sys):
         arcpy.management.Delete(in_data="xs_layer")
 
 
-def create_elev_values_table(workspace, water_name, l_xs_table):
+def create_elev_values_table(workspace, water_name, l_xs_table, folder_name):
     """Append L_XS_Elev to S_XS.
 
     Keyword arguments:
-    workspace -- the workspace that contains the folders of stream names
     water_name -- the current stream.  Will be converted to a folder name
     l_xs_table -- the xs elevation table
     """
@@ -219,7 +219,7 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
     try:
         # The reach's cross-section feature class
         table_name = arcpy.ValidateTableName(water_name).lower()
-        xs_elev_fc = os.path.join(workspace, table_name, "xs_elev.shp")
+        xs_elev_fc = os.path.join(workspace, folder_name, "xs_elev.shp")
 
         # Create needed views
         xs_layer = arcpy.management.MakeFeatureLayer(in_features=xs_elev_fc,
@@ -292,6 +292,9 @@ def make_folder(workspace, folder_name):
     Keyword arguments:
     workspace -- the workspace that contains the folders of stream names
     folder_name -- the water name that will become the folder name
+
+    Returns
+        the name of the folder
     """
     try:
         new_folder_name = arcpy.ValidateTableName(folder_name).lower()
@@ -303,6 +306,8 @@ def make_folder(workspace, folder_name):
 
         else:
             arcpy.AddMessage("\t\tFolder already exists.")
+
+        return new_folder_name
 
     except arcpy.ExecuteError:
         print(arcpy.GetMessages(2))
@@ -330,6 +335,7 @@ def create_flooding_clippers(workspace, flooding, buffer_size,
     # Check if the clipper already exists.  If so, skip it.
     query = None
     buffered_flooding = None
+
     if event == "100 year":
         buffered_flooding = workspace + "\\" + "flooding_1pct.shp"
         query = fld_zone_field + " in ('AE', 'A', 'AH')"
@@ -371,20 +377,19 @@ def create_flooding_clippers(workspace, flooding, buffer_size,
         arcpy.management.Delete(in_data="flood_lyr")
 
 
-def create_full_with_raster(workspace, water_name, event, cell_size):
+def create_full_with_raster(workspace, event, cell_size, folder_name):
     """Make the full width raster for the current WSE TIN
 
     Keyword arguments:
     workspace -- the workspace that contains the folders of stream names
-    water_name -- the current stream being processed
     event -- the event of the flooding to create
     cell_size -- the cell size of the output rasters
+    folder_name -- the folder name where the raster will be created
     """
-    table_name = arcpy.ValidateTableName(water_name).lower()
-    tin = os.path.join(workspace, table_name, event + ".tin")
-    clipper = os.path.join(workspace, table_name, "clipper.shp")
-    temp_wsel = os.path.join(workspace, table_name, event + "_temp.tif")
-    out_wsel = os.path.join(workspace, table_name, event + "_full.tif")
+    tin = os.path.join(workspace, folder_name, event + ".tin")
+    clipper = os.path.join(workspace, folder_name, "clipper.shp")
+    temp_wsel = os.path.join(workspace, folder_name, event + "_temp.tif")
+    out_wsel = os.path.join(workspace, folder_name, event + "_full.tif")
 
     try:
         # Return if the full raster already exists.
@@ -422,26 +427,23 @@ def create_full_with_raster(workspace, water_name, event, cell_size):
             arcpy.management.Delete(in_data="clipper_lyr")
 
 
-def clip_raster(workspace, water_name, event):
+def clip_raster(workspace, event, folder_name):
     """Clip a raster to polygon.
 
     Keyword arguments:
     workspace -- the workspace that contains the folders of stream names
-    water_name -- the current stream being processed
     event -- the event of the flooding to create
+    folder_name -- folder name where the raster will be created
     """
-
-    table_name = arcpy.ValidateTableName(water_name)
-    full_raster = os.path.join(workspace,table_name.lower(),
-                               event + "_full.tif")
-    clipped_raster = os.path.join(workspace, table_name, event + ".tif")
+    full_raster = os.path.join(workspace,folder_name, event + "_full.tif")
+    clipped_raster = os.path.join(workspace, folder_name, event + ".tif")
 
     # Skip if the rasters already exists
     if arcpy.Exists(dataset=clipped_raster):
         arcpy.AddMessage(f"\t\tThe clipped raster for {event} already exists.")
         return
 
-    # Return if the full raster grid does not exists
+    # Return if the full raster grid does not exist
     if not arcpy.Exists(dataset=full_raster):
         arcpy.AddMessage(f"\t\tThere are no WSE values for {event}.")
         return
@@ -471,7 +473,7 @@ def clip_raster(workspace, water_name, event):
         print(arcpy.GetMessages(2))
 
 
-def extract_raster_from_dem(workspace, water_name, event, dem):
+def extract_raster_from_dem(workspace, event, dem, folder_name):
     """Extract raster from the DEM
 
     Keyword arguments:
@@ -480,11 +482,10 @@ def extract_raster_from_dem(workspace, water_name, event, dem):
     event -- the event of the flooding to create
     dem -- the digital elevation model of the terrain
     """
-    table_name = arcpy.ValidateTableName(water_name)
-    full_raster = os.path.join(workspace, table_name.lower(), event + ".tif")
-    temp_raster = os.path.join(workspace, table_name, event + "_temp.tif")
+    full_raster = os.path.join(workspace, folder_name, event + ".tif")
+    temp_raster = os.path.join(workspace, folder_name, event + "_temp.tif")
 
-    # Return if the raster does not exists
+    # Return if the raster does not exist
     if not arcpy.Exists(dataset=full_raster):
         arcpy.AddMessage(f"\t\tThere are no WSE values for {event}.")
         return
@@ -536,7 +537,8 @@ def mosaic_wse_grid(workspace, event):
 
         for dirpath, _, filenames in walk:
             for filename in filenames:
-                if event in filename:
+                if ((event in filename and 'full' not in filename) or
+                        (event == "WSE_01pct" and 'static_01pct' in filename)):
                     raster_list.append(dirpath + '\\' + filename)
 
         # Return if the list is empty
@@ -616,7 +618,7 @@ def create_static_grids(workspace, flooding, coord_sys, cell_size, buffer_size, 
         build_rat="DO_NOT_BUILD")
 
 
-def main(xs_fc, flooding, process_list, elev_table, events, dem,
+def main(xs_fc, flooding, process_list, elev_table, events, process_static, dem,
          coord_sys, cell_size, out_folder, mosaic):
     """The main function
 
@@ -626,6 +628,7 @@ def main(xs_fc, flooding, process_list, elev_table, events, dem,
     process_list -- stream names to process
     elev_table -- the cross-section elevation table (L_XS_ELEV)
     events -- the flood events to process
+    process_static -- boolean stating whether to process static zones for 01pct
     dem -- the digital elevation model of the terrain
     coord_sys -- the final coordinate system of the data to be created
     cell_size -- the final cell size of the rasters
@@ -660,52 +663,54 @@ def main(xs_fc, flooding, process_list, elev_table, events, dem,
                              event="500 year", coord_sys=spatial_ref)
 
     # Process each water name
-    for water_name in process_list:
-        arcpy.AddMessage(f"\nProcessing {water_name}:")
+    for process_name in process_list:
+        water_name, start_id = process_name.split("--")
+        start_id = start_id.replace("{START_ID: ", "")
+        start_id = start_id.replace("}", "")
+        arcpy.AddMessage(f"\nProcessing {water_name} for START_ID: {start_id}")
 
         arcpy.AddMessage("\tMaking reach folder.")
-        make_folder(workspace=out_folder, folder_name=water_name)
+        folder_name = make_folder(workspace=out_folder, folder_name=water_name + "_" + start_id)
 
         arcpy.AddMessage("\tCopying cross sections to reach folder.")
-        copy_cross_sections(workspace=out_folder, water_name=water_name,
-                            xs_fc=xs_fc, coord_sys=spatial_ref)
+        copy_cross_sections(workspace=out_folder, water_name=water_name, start_id=start_id,
+                            xs_fc=xs_fc, coord_sys=spatial_ref, folder_name=folder_name)
 
         arcpy.AddMessage("\tCombining XS and L_XS_Elev table.")
         create_elev_values_table(workspace=out_folder, water_name=water_name,
-                                 l_xs_table=elev_table)
+                                 l_xs_table=elev_table, folder_name=folder_name)
 
         arcpy.AddMessage("\tCreating the clipper boundary.")
         create_stream_clippers(
-            workspace=out_folder, water_name=water_name, coord_sys=spatial_ref)
+            workspace=out_folder, water_name=water_name, coord_sys=spatial_ref, folder_name=folder_name)
 
         for event in events:
             arcpy.AddMessage('\n')
             arcpy.AddMessage(f"\tCreating TIN for {event}.")
             make_tin(workspace=out_folder, water_name=water_name, event=event,
-                     coord_sys=spatial_ref)
+                     coord_sys=spatial_ref, folder_name=folder_name)
 
             arcpy.AddMessage(f"\tCreating a raster for {event}.")
-            create_full_with_raster(workspace=out_folder, water_name=water_name,
-                                    event=event, cell_size=cell_size)
+            create_full_with_raster(workspace=out_folder, event=event,
+                                    cell_size=cell_size, folder_name=folder_name)
 
             arcpy.AddMessage(f"\tClipping the {event} raster to the flooding extent.")
-            clip_raster(workspace=out_folder, water_name=water_name,
-                        event=event)
+            clip_raster(workspace=out_folder, event=event, folder_name=folder_name)
 
             if event not in ("WSE_01pct", "WSE_0_2pct"):
                 arcpy.AddMessage(f"\tExtracting {event} from the DEM.")
-                extract_raster_from_dem(workspace=out_folder,
-                                        water_name=water_name,
-                                        event=event, dem=dem)
+                extract_raster_from_dem(workspace=out_folder, event=event,
+                                        dem=dem, folder_name=folder_name)
 
     # Make any static bfe raster
-    arcpy.AddMessage("Creating Static BFE WSE grids.")
-    create_static_grids(workspace=out_folder,
-                        flooding=flooding,
-                        coord_sys=spatial_ref,
-                        cell_size=cell_size,
-                        buffer_size=cell_size,
-                        units=spatial_units)
+    if process_static:
+        arcpy.AddMessage("Creating Static BFE WSE grids.")
+        create_static_grids(workspace=out_folder,
+                            flooding=flooding,
+                            coord_sys=spatial_ref,
+                            cell_size=cell_size,
+                            buffer_size=cell_size,
+                            units=spatial_units)
 
     if mosaic:
         arcpy.AddMessage("\n")
@@ -722,16 +727,22 @@ if __name__ == "__main__":
     PROCESS_NAMES = [name.replace("'", "") for name in PROCESS_NAMES_LIST]
     EVENTS_PARAM_LIST = sys.argv[5].split(";")
     EVENTS_LIST = [event.replace("'", "") for event in EVENTS_PARAM_LIST]
-    OUT_CELL_SIZE = float(sys.argv[6])
-    DEM_RASTER = sys.argv[7]
-    OUTPUT_FOLDER = sys.argv[8]
-    COORD_SYS = sys.argv[9]
-    MAKE_MOSAIC = sys.argv[10]
+    STATIC_01PCT = sys.argv[6]
+    OUT_CELL_SIZE = float(sys.argv[7])
+    DEM_RASTER = sys.argv[8]
+    OUTPUT_FOLDER = sys.argv[9]
+    COORD_SYS = sys.argv[10]
+    MAKE_MOSAIC = sys.argv[11]
 
     if MAKE_MOSAIC.lower() == 'true':
         MAKE_MOSAIC = True
     else:
         MAKE_MOSAIC = False
+
+    if STATIC_01PCT.lower() == 'true':
+        STATIC_01PCT = True
+    else:
+        STATIC_01PCT = False
 
     main(
         xs_fc=XS_FEATURE_CLASS,
@@ -739,6 +750,7 @@ if __name__ == "__main__":
         process_list=PROCESS_NAMES,
         elev_table=L_XS_ELEV_TABLE,
         events=EVENTS_LIST,
+        process_static=STATIC_01PCT,
         dem=DEM_RASTER,
         cell_size=OUT_CELL_SIZE,
         coord_sys=COORD_SYS,

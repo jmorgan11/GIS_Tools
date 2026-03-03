@@ -1,6 +1,7 @@
 """QC the elevation values of the FRP WSE grids with the cross sections."""
 import arcpy
 import os
+import sys
 
 def convert_to_points(xs, pbl, workspace):
     """
@@ -19,7 +20,7 @@ def convert_to_points(xs, pbl, workspace):
     # Output path to the new feataure class
     intersect_fc = os.path.join(workspace, "xs_pbl_intersect")
 
-    print("Intersecting cross sections and profile baselines...")
+    arcpy.AddMessage("Intersecting cross sections and profile baselines...")
 
     # Intersect the cross sections and profile baselines
     arcpy.analysis.Intersect(
@@ -42,7 +43,7 @@ def convert_from_multipoint(in_fc):
     returns:
         The path to the new feature class.
     """
-    print("Converting multipart to single part...")
+    arcpy.AddMessage("Converting multipart to single part...")
 
     # Get the path to the feature class
     fc_path = arcpy.Describe(in_fc).path
@@ -73,10 +74,10 @@ def drop_fields(in_fc):
         None
     """
 
-    print("Dropping unneeded fields...")
+    arcpy.AddMessage("Dropping unneeded fields...")
 
     # Fields not to delete
-    keep_fields = ["OBJECTID", "SHAPE", "XS_LN_ID", "WTR_NM", "STREAM_STN",
+    keep_fields = ["OBJECTID", "SHAPE", "Shape", "XS_LN_ID", "WTR_NM", "STREAM_STN",
                    "XS_10pct", "XS_04pct", "XS_02pct", "XS_01pct", "XS_01plus",
                    "XS_0_2pct", "XS_01minus", "XS_01fut", "XS_50pct", "XS_20pct"]
 
@@ -88,10 +89,11 @@ def drop_fields(in_fc):
 
     # Drop the fields
     for drop_field in drop_fields:
-        arcpy.management.DeleteField(
-            in_table=in_fc,
-            drop_field=drop_field,
-            method="DELETE_FIELDS")
+        if "shape" not in drop_field.lower():
+            arcpy.management.DeleteField(
+                in_table=in_fc,
+                drop_field=drop_field,
+                method="DELETE_FIELDS")
 
 
 def extract_wse_values(in_rasters, in_fc, in_dem):
@@ -107,7 +109,7 @@ def extract_wse_values(in_rasters, in_fc, in_dem):
     returns:
         None
     """
-    print("Extracting WSE values...")
+    arcpy.AddMessage("Extracting WSE values...")
 
     # Build up the raster list
     possible_raster_names = [
@@ -119,7 +121,7 @@ def extract_wse_values(in_rasters, in_fc, in_dem):
     for raster_name in possible_raster_names:
         for in_raster in in_rasters:
             if raster_name in in_raster:
-                print(f"\t{raster_name} will be extracted...")
+                arcpy.AddMessage(f"\t{raster_name} will be extracted...")
                 raster_list.append([in_raster, raster_name])
 
     # Add the DEM to the list of rasters to extract
@@ -142,7 +144,7 @@ def calc_nulls(in_fc):
     returns:
         None
     """
-    print("Calculating nulls to -9999...")
+    arcpy.AddMessage("Calculating nulls to -9999...")
 
     # Fields to update
     field_list = [
@@ -176,7 +178,7 @@ def calc_diff_fields(in_fc):
     returns:
         None
     """
-    print("Calculating difference fields...")
+    arcpy.AddMessage("Calculating difference fields...")
 
     field_groups = [
         ["XS_10pct", "WSE_10pct", "DIF_10pct"],
@@ -197,7 +199,7 @@ def calc_diff_fields(in_fc):
     # Iterate through the field pairs
     for pct, wse, dif in field_groups:
         if pct in field_names and wse in field_names:
-            print(f"\tCalculating difference of {pct} and {wse}...")
+            arcpy.AddMessage(f"\tCalculating difference of {pct} and {wse}...")
 
             # Selected all the PCT and WSE rows that are not -9999
             selected = arcpy.management.SelectLayerByAttribute(
@@ -234,7 +236,7 @@ def calc_diff_error(in_fc):
     returns:
         None
     """
-    print("Calculating difference error...")
+    arcpy.AddMessage("Calculating difference error...")
 
     # Fields to calculate
     diff_fields = ["DIF_10pct", "DIF_04pct", "DIF_02pct", "DIF_01pct",
@@ -249,7 +251,7 @@ def calc_diff_error(in_fc):
         if dif_field in field_names:
             error_field_name = dif_field.replace("DIF", "ERR")
 
-            print(f"\tCalculating {error_field_name}...")
+            arcpy.AddMessage(f"\tCalculating {error_field_name}...")
 
             # Add the ERR field
             arcpy.management.AddField(
@@ -295,7 +297,7 @@ def calc_scrv(in_fc, dem):
     returns:
         None
     """
-    print("Calculating the Slope-Cell Resolution Value...")
+    arcpy.AddMessage("Calculating the Slope-Cell Resolution Value...")
 
     # Get the cell size of the DEM
     desc = arcpy.Describe(dem)
@@ -312,7 +314,7 @@ def calc_scrv(in_fc, dem):
 
     # Iterate through the water names
     for water_name in water_names:
-        print(f"\tCalculating SCRV for {water_name}")
+        arcpy.AddMessage(f"\tCalculating SCRV for {water_name}")
 
         # Create a list of lists where the elemnts are the stream station and DEM value
         station_list = [
@@ -371,7 +373,7 @@ def create_review_field(in_fc):
     returns:
         None
     """
-    print("Adding the Review field...")
+    arcpy.AddMessage("Adding the Review field...")
 
     # Add the Review field
     arcpy.management.AddField(
@@ -418,7 +420,7 @@ def export_final_fc(in_fc):
     returns:
         None
     """
-    print("Exporting the final feature class...")
+    arcpy.AddMessage("Exporting the final feature class...")
 
     # Get the path to the feature class
     fc_path = arcpy.Describe(in_fc).path
@@ -500,22 +502,11 @@ def main(xs, pbl, workspace, rasters, dem):
     export_final_fc(in_fc=qc_fc)
 
 if __name__ == '__main__':
-    cross_sections = r'C:\GIS\Hiwassee_Watershed\Test\Code_Testing.gdb\xs_combined'
-    profile_baselines = r'C:\GIS\Hiwassee_Watershed\20250902_FanninCo_GA_NOV_2022.gdb\FIRM_Spatial_Layers\S_Profil_Basln'
-    out_workspace = r'C:\GIS\Hiwassee_Watershed\Test\Code_Testing.gdb'
-    wse_rasters = [
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_0_2pct.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_01fut.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_01minus.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_01pct.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_01plus.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_02pct.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_04pct.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_10pct.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_20pct.tif',
-        r'C:\GIS\Hiwassee_Watershed\WSE_Grids\WSE_50pct.tif'
-    ]
-    project_dem = r'C:\GIS\Hiwassee_Watershed\Bare_Earth_DEM\index_Terrain_processed3.vrt'
+    cross_sections = sys.argv[1]
+    profile_baselines = sys.argv[2]
+    out_workspace = sys.argv[3]
+    wse_rasters = sys.argv[4].split(';')
+    project_dem = sys.argv[5]
     
     main(
         xs=cross_sections,
