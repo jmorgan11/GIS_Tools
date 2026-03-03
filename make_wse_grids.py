@@ -5,6 +5,7 @@
    License: None
 """
 import os
+import sys
 import arcpy
 from arcpy.sa import ExtractByMask, SetNull
 from arcpy.da import SearchCursor, UpdateCursor, Walk
@@ -216,7 +217,7 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
     """
 
     try:
-        # The reach's cross section feature class
+        # The reach's cross-section feature class
         table_name = arcpy.ValidateTableName(water_name).lower()
         xs_elev_fc = os.path.join(workspace, table_name, "xs_elev.shp")
 
@@ -247,6 +248,11 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
                     for search_row in search_cursor:
                         event_type = search_row[0]
                         wsel = search_row[1]
+
+                        # Skip any Evaluation lines
+                        if search_row[2] in ['T', 'True']:
+                            continue
+
                         if event_type in ("50pct", "50 Percent Chance"):
                             update_row[1] = wsel
                         if event_type in ("20pct", "20 Percent Chance"):
@@ -270,11 +276,7 @@ def create_elev_values_table(workspace, water_name, l_xs_table):
                         if event_type in ("0_5pct", "0.5 Percent Chance"):
                             update_row[11] = wsel
 
-                        # Delete any 2D evaluation lines
-                        if search_row[2] == "T":
-                            update_cursor.deleteRow()
-                        else:
-                            update_cursor.updateRow(update_row)
+                        update_cursor.updateRow(update_row)
 
     except arcpy.ExecuteError:
         print(arcpy.GetMessages(2))
@@ -553,7 +555,8 @@ def mosaic_wse_grid(workspace, event):
     except arcpy.ExecuteError:
         print(arcpy.GetMessages(2))
 
-def create_static_grids(workspace, flooding, coord_sys, cell_size):
+
+def create_static_grids(workspace, flooding, coord_sys, cell_size, buffer_size, units):
     """Creates the Static Zone rasters.
 
     Keyword arguments:
@@ -561,42 +564,56 @@ def create_static_grids(workspace, flooding, coord_sys, cell_size):
     flooding -- the flooding feature class
     coord_sys -- the coordinate system to use for the clipper
     cell_size -- the cell size of the output rasters
+    buffer_size -- the distance to buffer the flooding
+    units -- the units for the buffer
     """
 
     # Folder to hold static bfe areas
-    out_folder_name = "Static_BFE_Zones"
+    out_folder_name = "static_bfe_zones"
+    static_polygon_projected = os.path.join(workspace,
+                                            out_folder_name,
+                                            "static_flooding_projected.shp")
     static_polygon_fc = os.path.join(workspace, out_folder_name, "static_flooding.shp")
-    static_wse_raster = os.path.join(workspace, out_folder_name, "static_flooding.tif")
+    static_wse_raster = os.path.join(workspace, out_folder_name, "static_01pct.tif")
     make_folder(workspace=workspace, folder_name=out_folder_name)
 
     # Check if the static polygons already exists.
-    if not arcpy.Exists(static_wse_raster):
-        print("Static zone rasters already exist.  Skipping...")
-        return        
+    if arcpy.Exists(static_wse_raster):
+        arcpy.AddMessage("Static zone rasters already exist.  Skipping...")
+        return
 
     # Select all the Static BFE Zones
     sql_exp = """{0} <> -9999""".format(arcpy.AddFieldDelimiters(flooding, "STATIC_BFE"))
-    static_polygons = arcpy.management.SelectByAttribute(
-        in_layer=flooding,
+    static_polygons = arcpy.management.SelectLayerByAttribute(
+        in_layer_or_view=flooding,
         selection_type="NEW_SELECTION",
         where_clause=sql_exp)
 
     if int(arcpy.management.GetCount(in_rows=static_polygons)[0]) > 0:
         if not arcpy.Exists(dataset=static_polygon_fc):
+            # Project the static flooding polygons
             arcpy.management.Project(
                 in_dataset=static_polygons,
-                out_dataset=static_polygon_fc,
+                out_dataset=static_polygon_projected,
                 out_coor_system=coord_sys)
+
+            # Buffer the static flooding polygons
+            buffer_distance = str(float(buffer_size) * 0.50) + " " + units
+            arcpy.analysis.Buffer(in_features=static_polygon_projected,
+                                  out_feature_class=static_polygon_fc,
+                                  buffer_distance_or_field=buffer_distance)
+
+            # Delete the projected static polygons
+            arcpy.management.Delete(static_polygon_projected)
     else:
         return
 
     # Create the WSE Grid
-    arcpy.PolygonToRaster_conversion(
+    arcpy.conversion.PolygonToRaster(
         in_features=static_polygon_fc,
         value_field="STATIC_BFE",
         out_rasterdataset=static_wse_raster,
-        cellsize=cell_size)
-      
+        build_rat="DO_NOT_BUILD")
 
 
 def main(xs_fc, flooding, process_list, elev_table, events, dem,
@@ -683,8 +700,13 @@ def main(xs_fc, flooding, process_list, elev_table, events, dem,
 
     # Make any static bfe raster
     arcpy.AddMessage("Creating Static BFE WSE grids.")
-    create_static_grids(workspace=out_folder, flooding=flooding, coord_sys=spatial_ref, cell_size=cell_size)
-    
+    create_static_grids(workspace=out_folder,
+                        flooding=flooding,
+                        coord_sys=spatial_ref,
+                        cell_size=cell_size,
+                        buffer_size=cell_size,
+                        units=spatial_units)
+
     if mosaic:
         arcpy.AddMessage("\n")
         for event in events:
@@ -693,18 +715,18 @@ def main(xs_fc, flooding, process_list, elev_table, events, dem,
 
 
 if __name__ == "__main__":
-    XS_FEATURE_CLASS = arcpy.GetParameterAsText(0)
-    FLOODING_FEATURE_CLASS = arcpy.GetParameterAsText(1)
-    L_XS_ELEV_TABLE = arcpy.GetParameterAsText(2)
-    PROCESS_NAMES_LIST = arcpy.GetParameterAsText(3).split(";")
+    XS_FEATURE_CLASS = sys.argv[1]
+    FLOODING_FEATURE_CLASS = sys.argv[2]
+    L_XS_ELEV_TABLE = sys.argv[3]
+    PROCESS_NAMES_LIST = sys.argv[4].split(";")
     PROCESS_NAMES = [name.replace("'", "") for name in PROCESS_NAMES_LIST]
-    EVENTS_PARAM_LIST = arcpy.GetParameterAsText(4).split(";")
+    EVENTS_PARAM_LIST = sys.argv[5].split(";")
     EVENTS_LIST = [event.replace("'", "") for event in EVENTS_PARAM_LIST]
-    OUT_CELL_SIZE = float(arcpy.GetParameterAsText(5))
-    DEM_RASTER = arcpy.GetParameterAsText(6)
-    OUTPUT_FOLDER = arcpy.GetParameterAsText(7)
-    COORD_SYS = arcpy.GetParameterAsText(8)
-    MAKE_MOSAIC = arcpy.GetParameterAsText(9)
+    OUT_CELL_SIZE = float(sys.argv[6])
+    DEM_RASTER = sys.argv[7]
+    OUTPUT_FOLDER = sys.argv[8]
+    COORD_SYS = sys.argv[9]
+    MAKE_MOSAIC = sys.argv[10]
 
     if MAKE_MOSAIC.lower() == 'true':
         MAKE_MOSAIC = True
