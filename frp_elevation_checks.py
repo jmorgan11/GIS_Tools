@@ -224,11 +224,13 @@ def calc_diff_fields(in_fc):
                 in_table=selected,
                 field=dif,
                 expression="-9999")
+        else:
+            arcpy.AddWarning(f"WARNING: Either {pct} or {wse} are missing.  Unable to calculate differences.")
 
 
 def calc_diff_error(in_fc):
     """
-    Calculate the differences between the cross section elevation values and
+    Calculate the differences between the cross-section elevation values and
     the WSE extracted values are greater than 0.5.
 
     parameters:
@@ -324,7 +326,7 @@ def calc_scrv(in_fc, dem):
         # Sort the station list on the first element
         station_list = sorted(station_list, key = lambda x: x[0])
 
-        # Iterate through the list and calcuate the SCRV
+        # Iterate through the list and calculate the SCRV
         for index in range(1, len(station_list)):
 
             # Get the current and previous station lists
@@ -346,10 +348,7 @@ def calc_scrv(in_fc, dem):
                 where_clause="WTR_NM = '" + water_name + "' And STREAM_STN = " + str(current_station[0]))
 
             # Calculate the selected row to the SCRV
-            arcpy.management.CalculateField(
-                in_table=selected,
-                field="SCRV",
-                expression=scrv)
+            arcpy.management.CalculateField(in_table=selected, field="SCRV", expression=scrv)
 
     # Select all the rows with NULL SCRV
     selected = arcpy.management.SelectLayerByAttribute(

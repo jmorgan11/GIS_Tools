@@ -8,7 +8,6 @@ Created: 1/26/2026
 """
 import arcpy
 import os
-import sys
 
 def main(xs_fc, l_xs_table, out_loc):
     """
@@ -36,8 +35,8 @@ def main(xs_fc, l_xs_table, out_loc):
         arcpy.management.CopyFeatures(xs_fc, out_xs_fc)
 
         # Add columns to the new feature class
-        fields = ['PCT_10', 'PCT_4', 'PCT_2', 'PCT_1', 'PCT_1_Plus', 'PCT_0_2',
-                  'PCT_1_Min', 'PCT_1_Fut', 'PCT_50', 'PCT_20']
+        fields = ['XS_10pct', 'XS_04pct', 'XS_02pct', 'XS_01pct', 'XS_01plus', 'XS_0_2pct',
+                  'XS_01minus', 'XS_01fut', 'XS_50pct', 'XS_20pct']
 
         for field in fields:
             arcpy.management.AddField(
@@ -98,9 +97,9 @@ def main(xs_fc, l_xs_table, out_loc):
 
 
 if __name__ == '__main__':
-    s_xs_fc = sys.argv[1]
-    l_xs_elev_table = sys.argv[2]
-    out_location = sys.argv[3]
+    s_xs_fc = arcpy.GetParameterAsText(0)
+    l_xs_elev_table = arcpy.GetParameterAsText(1)
+    out_location = arcpy.GetParameterAsText(2)
 
     main(xs_fc=s_xs_fc,
          l_xs_table=l_xs_elev_table,
